@@ -287,18 +287,19 @@
       <section class="card">
         <h2>Uploaded files</h2>
         <div class="drop-actions" style="justify-content: space-between; align-items:center;">
-          <div class="muted">Browse your uploaded folders and files.</div>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-            <label class="muted" style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" id="select-all" />
-              Select all
-            </label>
-            <button id="new-folder" class="link">New folder</button>
-            <button id="delete-selected" class="danger" disabled>Delete selected</button>
-            <label class="muted" style="display:flex;align-items:center;gap:8px;">
-              Sort
-              <select id="sort-select" style="width:auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);">
-                <option value="name">Name</option>
+      <div class="muted">Browse your uploaded folders and files.</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <label class="muted" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="select-all" />
+          Select all
+        </label>
+        <button id="new-folder" class="link">New folder</button>
+        <button id="zip-root" class="link">Download all (.zip)</button>
+        <button id="delete-selected" class="danger" disabled>Delete selected</button>
+        <label class="muted" style="display:flex;align-items:center;gap:8px;">
+          Sort
+          <select id="sort-select" style="width:auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);">
+            <option value="name">Name</option>
                 <option value="date">Newest</option>
                 <option value="size">Size</option>
               </select>
@@ -334,7 +335,7 @@
     let authToken = localStorage.getItem('sfd-token') || '';
     let isSetupMode = false;
     let expandedPaths = new Set(JSON.parse(localStorage.getItem('sfd-expanded') || '[]'));
-    let draggingPath = '';
+    let draggingPaths = [];
 
     function showLogin(message = '', mode = 'login') {
       isSetupMode = mode === 'setup';
@@ -426,24 +427,28 @@
           row.dataset.path = node.path;
           ['dragenter', 'dragover'].forEach((ev) => {
             row.addEventListener(ev, (e) => {
-              if (!draggingPath) return;
+              if (!draggingPaths.length) return;
               e.preventDefault();
               row.classList.add('drop-over');
             });
           });
           ['dragleave', 'drop'].forEach((ev) => {
             row.addEventListener(ev, (e) => {
-              if (!draggingPath) return;
+              if (!draggingPaths.length) return;
               e.preventDefault();
               row.classList.remove('drop-over');
             });
           });
           row.addEventListener('drop', async (e) => {
-            if (!draggingPath) return;
+            if (!draggingPaths.length) return;
             e.preventDefault();
-            const dest = joinFolder(node.path, basename(draggingPath));
-            await moveItem(draggingPath, dest);
-            draggingPath = '';
+            const toMove = [...draggingPaths];
+            draggingPaths = [];
+            for (const p of toMove) {
+              const dest = p === node.path ? null : joinFolder(node.path, basename(p));
+              if (dest) await moveItem(p, dest, true);
+            }
+            await loadFiles();
           });
         }
         const info = document.createElement('div');
@@ -514,11 +519,12 @@
         } else {
           row.draggable = true;
           row.addEventListener('dragstart', (e) => {
-            draggingPath = node.path;
+            const selected = updateSelected();
+            draggingPaths = selected.includes(node.path) ? selected : [node.path];
             e.dataTransfer.effectAllowed = 'move';
           });
           row.addEventListener('dragend', () => {
-            draggingPath = '';
+            draggingPaths = [];
           });
 
           const sizeChip = document.createElement('div');
@@ -877,7 +883,33 @@
       }
     });
 
-    async function moveItem(currentPath, destPath) {
+    document.getElementById('zip-root').addEventListener('click', async () => {
+      statusEl.textContent = 'Preparing zip...';
+      try {
+        const res = await fetch('/api/zip', { headers: authHeaders() });
+        if (res.status === 401) {
+          showLogin('Please log in to download.');
+          statusEl.textContent = '';
+          return;
+        }
+        if (!res.ok) throw new Error('Zip failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'uploads.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = '';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Could not download zip.';
+      }
+    });
+
+    async function moveItem(currentPath, destPath, silent = false) {
       const dest =
         destPath ||
         prompt(`Move to (e.g. folder/subfolder/filename.ext). Leave filename to move inside a folder.\nCurrent: ${currentPath}`);
@@ -891,11 +923,10 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Move failed');
-        statusEl.textContent = 'Moved.';
-        await loadFiles();
+        if (!silent) statusEl.textContent = 'Moved.';
       } catch (err) {
         console.error(err);
-        statusEl.textContent = err.message || 'Could not move item.';
+        if (!silent) statusEl.textContent = err.message || 'Could not move item.';
       }
     }
 

@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const archiver = require('archiver');
 
 const PORT = process.env.PORT || 3000;
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
@@ -239,6 +240,29 @@ app.post('/api/move', authMiddleware, async (req, res) => {
     if (err.code === 'ENOENT') return res.status(404).json({ error: 'Source not found' });
     console.error('Could not move', err);
     res.status(500).json({ error: 'Could not move item' });
+  }
+});
+
+app.get('/api/zip', authMiddleware, async (req, res) => {
+  const rel = cleanRelPath(req.query.path || '');
+  const target = path.join(UPLOAD_DIR, rel);
+  try {
+    const stats = await fs.promises.stat(target);
+    if (!stats.isDirectory()) return res.status(400).json({ error: 'Only folders can be zipped' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${(rel || 'archive').replace(/[^a-zA-Z0-9._-]/g, '_') || 'archive'}.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('Zip error', err);
+      res.status(500).end();
+    });
+    archive.pipe(res);
+    archive.directory(target, false);
+    archive.finalize();
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Folder not found' });
+    console.error('Zip failed', err);
+    res.status(500).json({ error: 'Could not create zip' });
   }
 });
 
