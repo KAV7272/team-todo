@@ -99,8 +99,9 @@
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     button:hover:not(:disabled) { transform: translateY(-1px); }
     .files {
-      display: grid;
-      gap: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
       margin-top: 10px;
     }
     .node {
@@ -112,12 +113,18 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      min-height: 60px;
     }
     .node-info {
       display: flex;
       align-items: center;
       gap: 10px;
       min-width: 0;
+    }
+    .select-box {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
     }
     .node .name {
       font-weight: 600;
@@ -236,16 +243,23 @@
 
       <section class="card">
         <h2>Uploaded files</h2>
-        <div class="drop-actions" style="justify-content: space-between;">
+        <div class="drop-actions" style="justify-content: space-between; align-items:center;">
           <div class="muted">Browse your uploaded folders and files.</div>
-          <label class="muted" style="display:flex;align-items:center;gap:8px;">
-            Sort
-            <select id="sort-select" style="width:auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);">
-              <option value="name">Name</option>
-              <option value="date">Newest</option>
-              <option value="size">Size</option>
-            </select>
-          </label>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <label class="muted" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="select-all" />
+              Select all
+            </label>
+            <button id="delete-selected" class="danger" disabled>Delete selected</button>
+            <label class="muted" style="display:flex;align-items:center;gap:8px;">
+              Sort
+              <select id="sort-select" style="width:auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);">
+                <option value="name">Name</option>
+                <option value="date">Newest</option>
+                <option value="size">Size</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div id="files" class="files"></div>
         <div id="empty" class="empty" style="display:none">No files uploaded yet.</div>
@@ -263,7 +277,9 @@
     const toggleBtn = document.getElementById('theme-toggle');
     const dropzone = document.getElementById('dropzone');
     const sortSelect = document.getElementById('sort-select');
+    const selectAll = document.getElementById('select-all');
     let cachedTree = [];
+    let checkboxes = [];
 
     function formatBytes(bytes) {
       if (!bytes && bytes !== 0) return '0 B';
@@ -294,9 +310,19 @@
         const info = document.createElement('div');
         info.className = 'node-info';
         info.style.paddingLeft = `${depth * 14}px`;
+
+        const select = document.createElement('div');
+        select.className = 'select-box';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.path = node.path;
+        cb.addEventListener('change', updateSelected);
+        select.appendChild(cb);
+
         const icon = document.createElement('div');
         icon.className = 'icon';
         icon.textContent = node.isDir ? '📁' : '📄';
+
         const text = document.createElement('div');
         text.style.minWidth = '0';
         text.innerHTML = `<div class="name" title="${node.path}">${node.path}</div>${
@@ -304,6 +330,7 @@
             ? `<div class="muted">${(node.children || []).length} item${(node.children || []).length === 1 ? '' : 's'}</div>`
             : `<div class="muted">${new Date(node.uploadedAt).toLocaleString()}</div>`
         }`;
+        info.appendChild(select);
         info.appendChild(icon);
         info.appendChild(text);
         row.appendChild(info);
@@ -346,6 +373,8 @@
       }
       emptyEl.style.display = 'none';
       renderTree(sorted);
+      checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"][data-path]'));
+      updateSelected();
     }
 
     async function loadFiles() {
@@ -364,16 +393,10 @@
     }
 
     async function deleteFile(pathName) {
-      if (!confirm('Delete this file from the server?')) return;
-      statusEl.textContent = 'Deleting...';
-      try {
-        const res = await fetch(`/api/files?path=${encodeURIComponent(pathName)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
-        await loadFiles();
-        statusEl.textContent = 'File removed.';
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = 'Could not delete file.';
+      const res = await fetch(`/api/files?path=${encodeURIComponent(pathName)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || 'Delete failed');
       }
     }
 
@@ -387,6 +410,20 @@
         .join('/');
     }
 
+    function updateSelected() {
+      const checked = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path);
+      document.getElementById('delete-selected').disabled = checked.length === 0;
+      selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+      return checked;
+    }
+
+    selectAll.addEventListener('change', () => {
+      checkboxes.forEach((c) => {
+        c.checked = selectAll.checked;
+      });
+      updateSelected();
+    });
+
     async function uploadFiles(files) {
       if (!files.length) {
         statusEl.textContent = 'Pick files or drop them in.';
@@ -397,12 +434,19 @@
         const named = new File([file], normalizeName(file), { type: file.type });
         data.append('files', named);
       });
+      const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
       statusEl.textContent = `Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`;
       uploadBtn.disabled = true;
+      const start = performance.now();
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: data });
-        const payload = await res.json();
-        if (!res.ok) throw new Error(payload.error || 'Upload failed');
+        await xhrUpload('/api/upload', data, (sent) => {
+          const elapsed = (performance.now() - start) / 1000;
+          const speed = elapsed ? sent / elapsed : 0;
+          const percent = totalBytes ? Math.min(100, Math.round((sent / totalBytes) * 100)) : 0;
+          statusEl.textContent = `Uploading... ${percent}% (${formatBytes(sent)} of ${formatBytes(totalBytes)}) at ${formatBytes(
+            speed,
+          )}/s`;
+        });
         statusEl.textContent = 'Upload complete.';
         fileInput.value = '';
         await loadFiles();
@@ -425,6 +469,22 @@
       }
     });
 
+    async function readAllEntries(reader) {
+      const entries = [];
+      async function readBatch() {
+        return new Promise((resolve) => {
+          reader.readEntries(async (batch) => {
+            if (!batch.length) return resolve();
+            entries.push(...batch);
+            await readBatch();
+            resolve();
+          });
+        });
+      }
+      await readBatch();
+      return entries;
+    }
+
     async function traverseEntry(entry, path = '') {
       return new Promise((resolve) => {
         if (entry.isFile) {
@@ -434,7 +494,7 @@
           });
         } else if (entry.isDirectory) {
           const reader = entry.createReader();
-          reader.readEntries(async (entries) => {
+          readAllEntries(reader).then(async (entries) => {
             const results = [];
             for (const ent of entries) {
               const nested = await traverseEntry(ent, path ? `${path}/${entry.name}` : entry.name);
@@ -489,12 +549,53 @@
       toggleBtn.textContent = mode === 'dark' ? 'Light mode' : 'Dark mode';
     }
 
+    function xhrUpload(url, formData, onProgress) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && onProgress) onProgress(event.loaded);
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const json = JSON.parse(xhr.responseText || '{}');
+              resolve(json);
+            } catch (err) {
+              resolve({});
+            }
+          } else {
+            reject(new Error('Upload failed'));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.send(formData);
+      });
+    }
+
     toggleBtn.addEventListener('click', () => {
       const next = document.body.classList.contains('dark') ? 'light' : 'dark';
       setTheme(next);
     });
 
     sortSelect.addEventListener('change', () => renderTreeRoot(cachedTree));
+
+    document.getElementById('delete-selected').addEventListener('click', async () => {
+      const selected = updateSelected();
+      if (!selected.length) return;
+      if (!confirm(`Delete ${selected.length} file${selected.length > 1 ? 's' : ''}?`)) return;
+      statusEl.textContent = 'Deleting selected...';
+      try {
+        for (const path of selected) {
+          await deleteFile(path);
+        }
+        statusEl.textContent = 'Selected files removed.';
+        await loadFiles();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Could not delete some files.';
+      }
+    });
 
     const savedTheme = localStorage.getItem('sfd-theme') || 'light';
     setTheme(savedTheme);
