@@ -337,6 +337,11 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Fallback for accidental form posts to root so the SPA still loads
+app.post('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 initDb()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

@@ -143,7 +143,7 @@
   <section class="card" id="auth-card">
     <h2>Welcome</h2>
     <div id="auth-forms">
-      <form id="login-form" method="post" action="#">
+      <form id="login-form" method="post" action="#" onsubmit="return false;">
         <h3>Login</h3>
         <label>Email</label>
         <input type="email" name="email" required />
@@ -153,7 +153,7 @@
         <div class="error" id="login-error"></div>
       </form>
       <hr />
-      <form id="register-form" method="post" action="#">
+      <form id="register-form" method="post" action="#" onsubmit="return false;">
         <h3>Create an account</h3>
         <label>Name</label>
         <input type="text" name="name" required />
@@ -172,12 +172,12 @@
   <section class="card" id="team-card" style="display:none">
     <h2>Team</h2>
     <div id="team-info"></div>
-    <form id="create-team-form" method="post" action="#">
+    <form id="create-team-form" method="post" action="#" onsubmit="return false;">
       <label>New team name</label>
       <input name="name" placeholder="Create a new team" required />
       <button type="submit">Create & switch</button>
     </form>
-    <form id="join-team-form" method="post" action="#">
+    <form id="join-team-form" method="post" action="#" onsubmit="return false;">
       <label>Join with invite code</label>
       <input name="invite" placeholder="e.g. ABC123" required />
       <button type="submit" class="secondary">Join team</button>
@@ -187,7 +187,7 @@
 
   <section class="card wide" id="create-task-card" style="display:none">
     <h2>New task</h2>
-    <form id="task-form" method="post" action="#">
+    <form id="task-form" method="post" action="#" onsubmit="return false;">
       <label>Title</label>
       <input name="title" required />
       <label>Description</label>
