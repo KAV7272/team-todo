@@ -289,6 +289,7 @@
               <input type="checkbox" id="select-all" />
               Select all
             </label>
+            <button id="new-folder" class="link">New folder</button>
             <button id="delete-selected" class="danger" disabled>Delete selected</button>
             <label class="muted" style="display:flex;align-items:center;gap:8px;">
               Sort
@@ -464,6 +465,15 @@
           dirChip.className = 'chip';
           dirChip.textContent = `${(node.children || []).length} item${(node.children || []).length === 1 ? '' : 's'}`;
           actions.appendChild(dirChip);
+
+          const del = document.createElement('button');
+          del.className = 'danger';
+          del.textContent = 'Delete';
+          del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteFile(node.path);
+          });
+          actions.appendChild(del);
         } else {
           const sizeChip = document.createElement('div');
           sizeChip.className = 'chip';
@@ -479,6 +489,16 @@
             downloadFile(node);
           });
           actions.appendChild(download);
+
+          const move = document.createElement('button');
+          move.className = 'link';
+          move.type = 'button';
+          move.textContent = 'Move';
+          move.addEventListener('click', (e) => {
+            e.stopPropagation();
+            moveItem(node.path);
+          });
+          actions.appendChild(move);
 
           const del = document.createElement('button');
           del.className = 'danger';
@@ -788,7 +808,7 @@
         for (const path of selected) {
           await deleteFile(path);
         }
-        statusEl.textContent = 'Selected files removed.';
+        statusEl.textContent = 'Selected items removed.';
         await loadFiles();
       } catch (err) {
         console.error(err);
@@ -800,6 +820,46 @@
         }
       }
     });
+
+    document.getElementById('new-folder').addEventListener('click', async () => {
+      const name = prompt('Folder name (relative to root, e.g. photos/trip):');
+      if (!name) return;
+      statusEl.textContent = 'Creating folder...';
+      try {
+        const res = await fetch('/api/folders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ path: name }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Could not create folder');
+        statusEl.textContent = 'Folder created.';
+        await loadFiles();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Could not create folder.';
+      }
+    });
+
+    async function moveItem(currentPath) {
+      const dest = prompt(`Move to (e.g. folder/subfolder/filename.ext). Leave filename to move inside a folder.\nCurrent: ${currentPath}`);
+      if (!dest) return;
+      statusEl.textContent = 'Moving...';
+      try {
+        const res = await fetch('/api/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ from: currentPath, to: dest }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Move failed');
+        statusEl.textContent = 'Moved.';
+        await loadFiles();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Could not move item.';
+      }
+    }
 
     loginBtn.addEventListener('click', async () => {
       const username = usernameInput.value.trim();

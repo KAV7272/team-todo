@@ -197,13 +197,48 @@ app.delete('/api/files', authMiddleware, async (req, res) => {
   const target = path.join(UPLOAD_DIR, rel);
   try {
     const stats = await fs.promises.stat(target);
-    if (stats.isDirectory()) return res.status(400).json({ error: 'Deleting folders is not supported' });
-    await fs.promises.unlink(target);
+    if (stats.isDirectory()) {
+      await fs.promises.rm(target, { recursive: true, force: true });
+    } else {
+      await fs.promises.unlink(target);
+    }
     res.json({ ok: true });
   } catch (err) {
     if (err.code === 'ENOENT') return res.status(404).json({ error: 'File not found' });
     console.error('Could not delete file', err);
     res.status(500).json({ error: 'Could not delete file' });
+  }
+});
+
+app.post('/api/folders', authMiddleware, async (req, res) => {
+  const { path: folderPath } = req.body || {};
+  const rel = cleanRelPath(folderPath || '');
+  if (!rel) return res.status(400).json({ error: 'Folder path required' });
+  try {
+    await fs.promises.mkdir(path.join(UPLOAD_DIR, rel), { recursive: true });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Could not create folder', err);
+    res.status(500).json({ error: 'Could not create folder' });
+  }
+});
+
+app.post('/api/move', authMiddleware, async (req, res) => {
+  const { from, to } = req.body || {};
+  const relFrom = cleanRelPath(from || '');
+  const relTo = cleanRelPath(to || '');
+  if (!relFrom || !relTo) return res.status(400).json({ error: 'Both from and to paths are required' });
+  const src = path.join(UPLOAD_DIR, relFrom);
+  const dest = path.join(UPLOAD_DIR, relTo);
+  try {
+    const destDir = path.dirname(dest);
+    await fs.promises.mkdir(destDir, { recursive: true });
+    await fs.promises.rename(src, dest);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Source not found' });
+    console.error('Could not move', err);
+    res.status(500).json({ error: 'Could not move item' });
   }
 });
 
