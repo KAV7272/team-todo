@@ -233,7 +233,7 @@
   const createTaskCard = document.getElementById('create-task-card');
   const tasksCard = document.getElementById('tasks-card');
   const notificationsCard = document.getElementById('notifications-card');
-  tabsEl = document.getElementById('tabs');
+  const tabsEl = document.getElementById('tabs');
 
   const loginForm = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
@@ -253,7 +253,6 @@
   let themeButtons = [];
   let enableBrowserBtn = null;
   let logoutSettingsBtn = null;
-  let tabsEl = null;
 
   function authHeaders() {
     return state.token ? { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json' } : {};
