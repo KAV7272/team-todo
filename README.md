@@ -1,6 +1,8 @@
-# Team Todo (self-hosted)
+# Team Todo (self-hosted) — v1.1.0
 
 Simple self-hosted team todo list with user accounts, teams, task assignment, and in-app notifications when tasks get assigned. Runs as a single Node/Express service with SQLite storage and a lightweight HTML front-end.
+
+![UI Preview](docs/ui.svg)
 
 ## Features
 - Email/password auth with JWT sessions.
