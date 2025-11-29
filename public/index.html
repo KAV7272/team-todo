@@ -148,6 +148,10 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .node.drop-over {
+      outline: 2px dashed var(--accent);
+      outline-offset: 2px;
+    }
     .link {
       text-decoration: none;
       color: var(--text);
@@ -330,6 +334,7 @@
     let authToken = localStorage.getItem('sfd-token') || '';
     let isSetupMode = false;
     let expandedPaths = new Set(JSON.parse(localStorage.getItem('sfd-expanded') || '[]'));
+    let draggingPath = '';
 
     function showLogin(message = '', mode = 'login') {
       isSetupMode = mode === 'setup';
@@ -398,6 +403,16 @@
       return parts.join('/') || '/';
     }
 
+    function basename(p) {
+      const clean = p.split('/').filter(Boolean);
+      return clean[clean.length - 1] || '';
+    }
+
+    function joinFolder(folderPath, name) {
+      if (!folderPath || folderPath === '/') return name;
+      return `${folderPath}/${name}`;
+    }
+
     function renderTree(nodes, depth = 0) {
       nodes.forEach((node) => {
         const row = document.createElement('div');
@@ -407,6 +422,28 @@
           row.addEventListener('click', (e) => {
             if (e.target.tagName.toLowerCase() === 'input') return;
             toggleDir(node.path);
+          });
+          row.dataset.path = node.path;
+          ['dragenter', 'dragover'].forEach((ev) => {
+            row.addEventListener(ev, (e) => {
+              if (!draggingPath) return;
+              e.preventDefault();
+              row.classList.add('drop-over');
+            });
+          });
+          ['dragleave', 'drop'].forEach((ev) => {
+            row.addEventListener(ev, (e) => {
+              if (!draggingPath) return;
+              e.preventDefault();
+              row.classList.remove('drop-over');
+            });
+          });
+          row.addEventListener('drop', async (e) => {
+            if (!draggingPath) return;
+            e.preventDefault();
+            const dest = joinFolder(node.path, basename(draggingPath));
+            await moveItem(draggingPath, dest);
+            draggingPath = '';
           });
         }
         const info = document.createElement('div');
@@ -475,6 +512,15 @@
           });
           actions.appendChild(del);
         } else {
+          row.draggable = true;
+          row.addEventListener('dragstart', (e) => {
+            draggingPath = node.path;
+            e.dataTransfer.effectAllowed = 'move';
+          });
+          row.addEventListener('dragend', () => {
+            draggingPath = '';
+          });
+
           const sizeChip = document.createElement('div');
           sizeChip.className = 'chip';
           sizeChip.textContent = formatBytes(node.size);
@@ -489,16 +535,6 @@
             downloadFile(node);
           });
           actions.appendChild(download);
-
-          const move = document.createElement('button');
-          move.className = 'link';
-          move.type = 'button';
-          move.textContent = 'Move';
-          move.addEventListener('click', (e) => {
-            e.stopPropagation();
-            moveItem(node.path);
-          });
-          actions.appendChild(move);
 
           const del = document.createElement('button');
           del.className = 'danger';
@@ -841,8 +877,10 @@
       }
     });
 
-    async function moveItem(currentPath) {
-      const dest = prompt(`Move to (e.g. folder/subfolder/filename.ext). Leave filename to move inside a folder.\nCurrent: ${currentPath}`);
+    async function moveItem(currentPath, destPath) {
+      const dest =
+        destPath ||
+        prompt(`Move to (e.g. folder/subfolder/filename.ext). Leave filename to move inside a folder.\nCurrent: ${currentPath}`);
       if (!dest) return;
       statusEl.textContent = 'Moving...';
       try {
