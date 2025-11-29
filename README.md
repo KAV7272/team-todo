@@ -4,11 +4,18 @@ Tiny self-hosted file upload web app. One container runs both the API and a mini
 
 ## Quick start (Docker)
 ```bash
-docker build -t simple-file-drop .
-docker run -p 3000:3000 -v "$(pwd)/uploads:/app/uploads" simple-file-drop
+# clone (if you don't already have the repo on this machine)
+git clone https://github.com/KAV7272/team-todo.git
+cd team-todo
+
+# build and run
+sudo mkdir -p "$(pwd)/uploads"
+sudo docker build -t simple-file-drop .
+sudo docker run -p 3000:3000 -v "$(pwd)/uploads:/app/uploads" simple-file-drop
 ```
 - Open http://localhost:3000 to upload files.
 - The host volume keeps your uploaded files. Remove the `-v` flag if you want everything to be ephemeral.
+- If you see `permission denied` for the Docker socket, add your user to the docker group: `sudo usermod -aG docker $USER` then log out/in (or keep using `sudo docker ...`).
 
 ## Local run
 ```bash
