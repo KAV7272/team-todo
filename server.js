@@ -6,6 +6,8 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'devpass';
+const AUTH_SECRET = process.env.AUTH_SECRET || 'change-me-secret';
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -46,7 +48,7 @@ const app = express();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '1h', redirect: false }));
+app.use('/uploads', authMiddleware, express.static(UPLOAD_DIR, { maxAge: '1h', redirect: false }));
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
@@ -76,7 +78,26 @@ async function collectFiles(baseDir, rel = '') {
   return results;
 }
 
-app.get('/api/files', async (_req, res) => {
+function tokenForPassword(password) {
+  return crypto.createHmac('sha256', AUTH_SECRET).update(password).digest('hex');
+}
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token !== tokenForPassword(ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+app.post('/api/login', (req, res) => {
+  const { password } = req.body || {};
+  if (!password || password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Invalid password' });
+  res.json({ token: tokenForPassword(ADMIN_PASSWORD) });
+});
+
+app.get('/api/files', authMiddleware, async (_req, res) => {
   try {
     await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
     const tree = await collectFiles(UPLOAD_DIR, '');
@@ -87,7 +108,7 @@ app.get('/api/files', async (_req, res) => {
   }
 });
 
-app.post('/api/upload', upload.array('files'), (req, res) => {
+app.post('/api/upload', authMiddleware, upload.array('files'), (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'No files uploaded' });
   res.json({
@@ -100,7 +121,7 @@ app.post('/api/upload', upload.array('files'), (req, res) => {
   });
 });
 
-app.delete('/api/files', async (req, res) => {
+app.delete('/api/files', authMiddleware, async (req, res) => {
   const rel = cleanRelPath(req.query.path || '');
   if (!rel) return res.status(400).json({ error: 'Path required' });
   const target = path.join(UPLOAD_DIR, rel);

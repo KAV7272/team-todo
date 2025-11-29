@@ -205,6 +205,35 @@
       color: var(--muted);
       text-align: center;
     }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 30;
+    }
+    .modal {
+      max-width: 420px;
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .modal h2 { margin-top: 0; }
+    .inline-input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(37, 99, 235, 0.06);
+      color: var(--text);
+      margin: 10px 0;
+    }
     @media (max-width: 640px) {
       .file-header { flex-direction: column; align-items: flex-start; }
       header { flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -212,6 +241,15 @@
   </style>
 </head>
 <body>
+  <div class="overlay" id="login-overlay" style="display:none;">
+    <div class="modal">
+      <h2>Login required</h2>
+      <p class="muted">Enter the password to access uploads.</p>
+      <input id="password-input" class="inline-input" type="password" placeholder="Password" />
+      <button id="login-button">Login</button>
+      <div class="status" id="login-status"></div>
+    </div>
+  </div>
   <div class="shell">
     <header>
       <div>
@@ -278,8 +316,29 @@
     const dropzone = document.getElementById('dropzone');
     const sortSelect = document.getElementById('sort-select');
     const selectAll = document.getElementById('select-all');
+    const loginOverlay = document.getElementById('login-overlay');
+    const passwordInput = document.getElementById('password-input');
+    const loginBtn = document.getElementById('login-button');
+    const loginStatus = document.getElementById('login-status');
     let cachedTree = [];
     let checkboxes = [];
+    let authToken = localStorage.getItem('sfd-token') || '';
+
+    function showLogin(message = '') {
+      loginOverlay.style.display = 'flex';
+      loginStatus.textContent = message;
+      passwordInput.value = '';
+      passwordInput.focus();
+    }
+
+    function hideLogin() {
+      loginOverlay.style.display = 'none';
+      loginStatus.textContent = '';
+    }
+
+    function authHeaders() {
+      return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    }
 
     function formatBytes(bytes) {
       if (!bytes && bytes !== 0) return '0 B';
@@ -343,11 +402,11 @@
           sizeChip.textContent = formatBytes(node.size);
           actions.appendChild(sizeChip);
 
-          const download = document.createElement('a');
+          const download = document.createElement('button');
           download.className = 'link';
-          download.href = node.url;
-          download.download = '';
+          download.type = 'button';
           download.textContent = 'Download';
+          download.addEventListener('click', () => downloadFile(node));
           actions.appendChild(download);
 
           const del = document.createElement('button');
@@ -380,7 +439,12 @@
     async function loadFiles() {
       statusEl.textContent = 'Loading files...';
       try {
-        const res = await fetch('/api/files');
+        const res = await fetch('/api/files', { headers: authHeaders() });
+        if (res.status === 401) {
+          showLogin('Session expired. Please log in.');
+          statusEl.textContent = '';
+          return;
+        }
         if (!res.ok) throw new Error('Failed to fetch files');
         const data = await res.json();
         cachedTree = data.tree || [];
@@ -393,10 +457,43 @@
     }
 
     async function deleteFile(pathName) {
-      const res = await fetch(`/api/files?path=${encodeURIComponent(pathName)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/files?path=${encodeURIComponent(pathName)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (res.status === 401) {
+        showLogin('Please log in to delete.');
+        throw new Error('Unauthorized');
+      }
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload.error || 'Delete failed');
+      }
+    }
+
+    async function downloadFile(node) {
+      statusEl.textContent = 'Preparing download...';
+      try {
+        const res = await fetch(node.url, { headers: authHeaders() });
+        if (res.status === 401) {
+          showLogin('Please log in to download.');
+          statusEl.textContent = '';
+          return;
+        }
+        if (!res.ok) throw new Error('Download failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = node.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = '';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Download failed.';
       }
     }
 
@@ -446,13 +543,18 @@
           statusEl.textContent = `Uploading... ${percent}% (${formatBytes(sent)} of ${formatBytes(totalBytes)}) at ${formatBytes(
             speed,
           )}/s`;
-        });
+        }, authHeaders());
         statusEl.textContent = 'Upload complete.';
         fileInput.value = '';
         await loadFiles();
       } catch (err) {
         console.error(err);
-        statusEl.textContent = err.message || 'Upload failed.';
+        if (err.message === 'Unauthorized') {
+          showLogin('Please log in to upload.');
+          statusEl.textContent = '';
+        } else {
+          statusEl.textContent = err.message || 'Upload failed.';
+        }
       } finally {
         uploadBtn.disabled = false;
       }
@@ -549,14 +651,19 @@
       toggleBtn.textContent = mode === 'dark' ? 'Light mode' : 'Dark mode';
     }
 
-    function xhrUpload(url, formData, onProgress) {
+    function xhrUpload(url, formData, onProgress, headers = {}) {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
+        Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable && onProgress) onProgress(event.loaded);
         };
         xhr.onload = () => {
+          if (xhr.status === 401) {
+            reject(new Error('Unauthorized'));
+            return;
+          }
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const json = JSON.parse(xhr.responseText || '{}');
@@ -597,9 +704,37 @@
       }
     });
 
+    loginBtn.addEventListener('click', async () => {
+      const password = passwordInput.value.trim();
+      if (!password) {
+        loginStatus.textContent = 'Enter a password.';
+        return;
+      }
+      loginStatus.textContent = 'Signing in...';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.token) throw new Error(data.error || 'Login failed');
+        authToken = data.token;
+        localStorage.setItem('sfd-token', authToken);
+        hideLogin();
+        await loadFiles();
+      } catch (err) {
+        loginStatus.textContent = err.message || 'Login failed';
+      }
+    });
+
+    passwordInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') loginBtn.click();
+    });
+
     const savedTheme = localStorage.getItem('sfd-theme') || 'light';
     setTheme(savedTheme);
-    loadFiles();
+    loadFiles().catch(() => showLogin());
   </script>
 </body>
 </html>

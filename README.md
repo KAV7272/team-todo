@@ -11,7 +11,7 @@ cd team-todo
 # build and run
 sudo mkdir -p "$(pwd)/uploads"
 sudo docker build -t simple-file-drop .
-sudo docker run -p 3000:3000 -v "$(pwd)/uploads:/app/uploads" simple-file-drop
+sudo docker run -p 3000:3000 -e ADMIN_PASSWORD="change-me" -v "$(pwd)/uploads:/app/uploads" simple-file-drop
 ```
 - Open http://localhost:3000 to upload files.
 - The host volume keeps your uploaded files. Remove the `-v` flag if you want everything to be ephemeral.
@@ -20,18 +20,21 @@ sudo docker run -p 3000:3000 -v "$(pwd)/uploads:/app/uploads" simple-file-drop
 ## Local run
 ```bash
 npm install
-node server.js
+ADMIN_PASSWORD="change-me" node server.js
 ```
 
 ## Configuration
 - `PORT` (default: 3000)
 - `UPLOAD_DIR` (default: `/app/uploads` inside the container)
 - `NODE_ENV=production` to disable Express error details.
+- `ADMIN_PASSWORD` (required for login; default is `devpass` for local testing)
+- `AUTH_SECRET` (optional; used to derive tokens)
 
 ## API
 - `GET /api/files` — list uploads as a tree (files include `path`, `size`, `uploadedAt`, `url`).
 - `POST /api/upload` — multipart upload with field name `files` (supports multiple files and folders).
 - `DELETE /api/files?path=<relativePath>` — remove an uploaded file.
+- `POST /api/login` — `{ password }` → `{ token }`; use token as `Authorization: Bearer <token>` for API and downloads.
 - Files are served from `/uploads/<relativePath>` for downloading.
 
 ## Notes
