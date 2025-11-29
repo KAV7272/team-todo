@@ -5,8 +5,8 @@ Tiny self-hosted file upload web app. One container runs both the API and a mini
 ## Quick start (Docker)
 ```bash
 # clone (if you don't already have the repo on this machine)
-git clone https://github.com/KAV7272/team-todo.git
-cd team-todo
+git clone https://github.com/KAV7272/simple-file-drop.git
+cd simple-file-drop
 
 # build and run
 sudo mkdir -p "$(pwd)/uploads"
